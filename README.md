@@ -41,7 +41,17 @@ After launching Anaconda, follow the steps below to create a new environment and
     conda install -c conda-forge napari pyqt
     ```
 
-4. Launch Napari:
+4. Install additional libraries required for analysis:
+    ```bash
+    conda install -c conda-forge magicgui numpy scikit-image scipy matplotlib pandas qtpy
+    ```
+
+5. Install Cellpose using pip:
+    ```bash
+    pip install cellpose
+    ```
+
+6. Launch Napari:
     ```bash
     napari
     ```
