@@ -2,10 +2,7 @@
 
 This repository contains code for analyzing metaphase chromosomes using the [Napari](https://napari.org/stable/) platform. The code is tailored for visualization, segmentation, and quantitative analysis of chromosome images, with integrated tools for centromere detection and CENP-A level measurement.
 
-## Author
-**Md Abdul Kader Sagar**  
-Email: [sagarm2@nih.gov](mailto:sagarm2@nih.gov)  
-Institute: NCI/NIH
+
 
 ## Description
 This project uses Napari for analyzing metaphase chromosome images. It enables users to:
