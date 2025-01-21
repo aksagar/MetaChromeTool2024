@@ -1,16 +1,3 @@
-"""
-Author: Md Abdul Kader Sagar
-Email: sagarm2@nih.gov
-Institute: National Cancer Institute/NIH
-
-This code is designed for analyzing metaphase chromosomes using the Napari platform.
-It facilitates the visualization and segmentation of chromosome images, enabling users 
-to efficiently assess chromosome structures and perform quantitative analysis.
-The code integrates tools for detecting centromeres and measuring CENP-A levels 
-within metaphase chromosome regions, enhancing the accuracy of chromosome analysis.
-"""
-
-
 import os
 import pandas as pd
 from image_processor import ImageProcessor
