@@ -19,6 +19,11 @@ from skimage import morphology as morph
 from scipy import ndimage as ndi
 from cellpose import models
 
+
+from skimage.draw import line
+from scipy.ndimage import binary_dilation
+
+
 class ImageProcessor:
     def __init__(self):
         self.img_cenpc = None
@@ -102,7 +107,7 @@ class ImageProcessor:
         Returns:
             The segmented image masks
         """
-        trained_model_path = 'cellpose_1718127286.8010929'
+        trained_model_path = '/gpfs/gsfs10/users/sagarm2/cellpose_chr/newDataSet/trainingfiles/models/cellpose_1718127286.8010929'
         model = models.CellposeModel(gpu=True, pretrained_model=trained_model_path)
 
         masks, flows, styles = model.eval([image], diameter=None, channels=[0, 0])
@@ -428,16 +433,19 @@ class ImageProcessor:
         
         return normalized2.astype(np.uint8), labeled_spots
     
-    def find_common(self, threshold_dna_fish, threshold_cenpc):
+    def find_common(self):
         """
-        Find DNA-FISH spots in chromosomes that also contain CENPC spots and calculate CENPC intensity.
+        Find Channel 1 spots in chromosomes that also contain Channel 2 spots and calculate Channel 2 intensity.
         
-        Args:
-            threshold_dna_fish: Threshold used for DNA-FISH detection
-            threshold_cenpc: Threshold used for CENPC detection
-            
         Returns:
             numpy.ndarray: Labeled image showing chromosomes with both types of spots
+            None: If no spots are found or an error occurs
+            
+        Note:
+            - Requires prior segmentation (self.nuclei must be set)
+            - Requires prior spot detection for both channels
+            - Updates self.common_nuclei with the labeled image
+            - Updates self.df_centroid_dna_fish with spot locations and intensities
         """
         try:
             # Check if we have all required data
@@ -456,57 +464,61 @@ class ImageProcessor:
             chromosome_labels = np.unique(self.nuclei)
             chromosome_labels = chromosome_labels[chromosome_labels != 0]  # Remove background
             
-            common_chromosomes = []
-            dna_fish_locations = []
-            cenpc_intensities = []
+            common_nuclei = []
+            channel1_locations = []
+            channel2_intensities = []
             
             # For each chromosome
             for label in chromosome_labels:
                 # Create mask for this chromosome
                 chromosome_mask = self.nuclei == label
                 
-                # Find DNA-FISH spots in this chromosome
-                dna_fish_in_chromosome = []
+                # Find Channel 1 spots in this chromosome
+                channel1_in_chromosome = []
                 for y, x in self.dna_fish_centroids:
                     if chromosome_mask[int(y), int(x)]:
-                        dna_fish_in_chromosome.append((y, x))
+                        channel1_in_chromosome.append((y, x))
                         
-                # Find CENPC spots in this chromosome
-                cenpc_in_chromosome = []
+                # Find Channel 2 spots in this chromosome
+                channel2_in_chromosome = []
                 for y, x in self.cenpc_centroids:
                     if chromosome_mask[int(y), int(x)]:
-                        cenpc_in_chromosome.append((y, x))
+                        channel2_in_chromosome.append((y, x))
                 
                 # If chromosome has both types of spots
-                if len(dna_fish_in_chromosome) > 0 and len(cenpc_in_chromosome) > 0:
-                    common_chromosomes.append(label)
+                if len(channel1_in_chromosome) > 0 and len(channel2_in_chromosome) > 0:
+                    common_nuclei.append(label)
                     # Mark this chromosome in output
                     labelled_nuclei[chromosome_mask] = label
                     
-                    # For each DNA-FISH spot in this chromosome
-                    for dna_y, dna_x in dna_fish_in_chromosome:
-                        dna_fish_locations.append((dna_y, dna_x))
-                        # Get CENPC intensity at this location
+                    # For each Channel 1 spot in this chromosome
+                    for ch1_y, ch1_x in channel1_in_chromosome:
+                        channel1_locations.append((ch1_y, ch1_x))
+                        # Get Channel 2 intensity at this location
                         if hasattr(self, 'img_cenpc') and self.img_cenpc is not None:
-                            intensity = self.img_cenpc[int(dna_y), int(dna_x)]
-                            cenpc_intensities.append(intensity)
+                            intensity = self.img_cenpc[int(ch1_y), int(ch1_x)]
+                            channel2_intensities.append(intensity)
+            
+            # Store the common nuclei
+            self.common_nuclei = labelled_nuclei
             
             # Create DataFrames with results
-            if len(dna_fish_locations) > 0:
-                self.df_centroid_dna_fish = pd.DataFrame(dna_fish_locations, columns=['Y', 'X'])
-                if cenpc_intensities:
-                    self.df_centroid_dna_fish['CENPC_Intensity'] = cenpc_intensities
-                print(f"Found {len(dna_fish_locations)} DNA-FISH spots in {len(common_chromosomes)} chromosomes with CENPC")
+            if len(channel1_locations) > 0:
+                self.df_centroid_dna_fish = pd.DataFrame(channel1_locations, columns=['Y', 'X'])
+                if channel2_intensities:
+                    self.df_centroid_dna_fish['Channel2_Intensity'] = channel2_intensities
+                print(f"Found {len(channel1_locations)} Channel 1 spots in {len(common_nuclei)} chromosomes with Channel 2")
             else:
-                print("No chromosomes found with both DNA-FISH and CENPC spots")
-                self.df_centroid_dna_fish = pd.DataFrame(columns=['Y', 'X', 'CENPC_Intensity'])
+                print("No chromosomes found with both Channel 1 and Channel 2 spots")
+                self.df_centroid_dna_fish = pd.DataFrame(columns=['Y', 'X', 'Channel2_Intensity'])
                 return np.zeros_like(self.nuclei, dtype=np.uint8)
                 
             return labelled_nuclei
             
         except Exception as e:
-            print(f"Error in find_common2: {str(e)}")
-            return None
+            print(f"Error in find_common: {str(e)}")
+            return None    
+        
         
     def find_common_BU(self, threshold_dna_fish, threshold_cenpc):
         common_labels = np.intersect1d(self.spotLabelsDNAFISH, self.spotLabelsCENPC)
@@ -710,6 +722,84 @@ class ImageProcessor:
             self.nuclei = updated_nuclei
 
         return self.nuclei
+    
+
+
+    def delete_dna_fish_spots_with_line(self, viewer):
+        """Delete DNA-FISH spots that intersect with the drawn line or points."""
+        if self.dna_fish_centroids is None or len(self.dna_fish_centroids) == 0:
+            return
+
+        shapes_layer = viewer.layers['Shapes']
+        
+        # Get image shape from the first image if available, otherwise use default
+        if hasattr(self, 'images') and self.images is not None and len(self.images) > 0:
+            img_shape = self.images[0].shape
+        else:
+            img_shape = (1024, 1024)  # default shape
+        
+        # Create mask for all shapes
+        line_mask = np.zeros(img_shape, dtype=bool)
+        
+        # Process all shapes (lines or points)
+        for shape_coords in shapes_layer.data:
+            if len(shape_coords) == 1:  # Single point
+                y, x = int(shape_coords[0][0]), int(shape_coords[0][1])
+                if 0 <= y < img_shape[0] and 0 <= x < img_shape[1]:
+                    line_mask[y, x] = True
+            else:  # Line
+                for i in range(len(shape_coords) - 1):
+                    start_y, start_x = int(shape_coords[i][0]), int(shape_coords[i][1])
+                    end_y, end_x = int(shape_coords[i+1][0]), int(shape_coords[i+1][1])
+                    
+                    rr, cc = line(start_y, start_x, end_y, end_x)
+                    valid_points = (rr >= 0) & (rr < img_shape[0]) & (cc >= 0) & (cc < img_shape[1])
+                    rr, cc = rr[valid_points], cc[valid_points]
+                    line_mask[rr, cc] = True
+        
+        # Buffer the mask
+        line_mask = binary_dilation(line_mask, iterations=3)
+        
+        # Find spots that don't intersect with the mask
+        kept_spots = []
+        square_size = 5  # Half size of the square around each spot
+        
+        for spot in self.dna_fish_centroids:
+            spot_y, spot_x = int(spot[0]), int(spot[1])
+            
+            # Check if any part of the square around the spot intersects with the line
+            y_min = max(0, spot_y - square_size)
+            y_max = min(img_shape[0], spot_y + square_size + 1)
+            x_min = max(0, spot_x - square_size)
+            x_max = min(img_shape[1], spot_x + square_size + 1)
+            
+            square_region = line_mask[y_min:y_max, x_min:x_max]
+            if not np.any(square_region):  # If no intersection with the line
+                kept_spots.append(spot)
+        
+        # Update centroids
+        self.dna_fish_centroids = np.array(kept_spots) if kept_spots else np.array([])
+        
+        # Update the viewer
+        for layer in viewer.layers:
+            if 'DNA-FISH Spots' in layer.name:
+                viewer.layers.remove(layer)
+        
+        if len(self.dna_fish_centroids) > 0:
+            squares = [
+                [[x - 5, y - 5], [x + 5, y - 5], [x + 5, y + 5], [x - 5, y + 5]]
+                for x, y in self.dna_fish_centroids
+            ]
+            viewer.add_shapes(
+                squares,
+                shape_type='polygon',
+                edge_color="yellow",
+                face_color=[1, 1, 0, 0.2],
+                edge_width=2,
+                name="DNA-FISH Spots",
+                opacity=0.8
+            )
+
 
     def split_chromosome_with_line_BU(self, line_coords):
         rr, cc = line_coords.T.astype(int)
