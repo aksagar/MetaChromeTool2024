@@ -48,10 +48,11 @@ After launching Anaconda, follow the steps below to create a new environment and
     pip install cellpose
     ```
 
-6. Launch Napari:
+6. Navigate to the folder where you downloaded the code and launch the program (To verify you are in the right folder make sure this directory contains the main.py file along with the other files you downloaded)
     ```bash
-    napari
+    python main.py
     ```
+    
 
 For more detailed installation instructions, please refer to the [Napari Installation Guide](https://napari.org/stable/tutorials/fundamentals/installation.html).
 
