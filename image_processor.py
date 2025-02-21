@@ -27,6 +27,7 @@ from scipy.ndimage import binary_dilation
 class ImageProcessor:
     def __init__(self):
         self.img_cenpc = None
+        self.img_dna_fish = None
         self.dna_fish_spots = None  # Placeholder for DNA-FISH spot locations
         self.cenpc_spots = None  # Placeholder for CENPC spot locations
         self.normalizedDNAFISH = None  # Placeholder for normalized DNA-FISH image
@@ -68,10 +69,49 @@ class ImageProcessor:
             images.append(image)
             if cenpc_id in image_file:
                 self.img_cenpc = image
+            if dna_fish_id in image_file:  # Add this check
+                self.img_dna_fish = image
         
         return images
 
-
+    def get_spots_in_common_regions(self, df_spots, common_nuclei):
+        """
+        Filter spots to only include those in common regions.
+        
+        Parameters:
+        -----------
+        df_spots : pandas.DataFrame
+            DataFrame containing spot coordinates with columns ['Y', 'X']
+        common_nuclei : numpy.ndarray
+            Label image of common regions
+            
+        Returns:
+        --------
+        pandas.DataFrame
+            Filtered DataFrame containing only spots in common regions
+        """
+        try:
+            if df_spots is None or df_spots.empty:
+                return None
+                
+            # Create mask for spots in common regions
+            spots_in_common = []
+            for _, spot in df_spots.iterrows():
+                y, x = int(spot['Y']), int(spot['X'])
+                if y < common_nuclei.shape[0] and x < common_nuclei.shape[1]:
+                    if common_nuclei[y, x] > 0:  # Check if spot is in a common region
+                        spots_in_common.append(True)
+                    else:
+                        spots_in_common.append(False)
+                else:
+                    spots_in_common.append(False)
+                    
+            # Filter spots
+            return df_spots[spots_in_common].copy()
+            
+        except Exception as e:
+            print(f"Error filtering spots in common regions: {str(e)}")
+            return None
 
     def load_images1(self, folder_path):
         image_files = [f for f in os.listdir(folder_path) if f.endswith(('.tif', '.png', '.jpg'))]
@@ -107,7 +147,7 @@ class ImageProcessor:
         Returns:
             The segmented image masks
         """
-        trained_model_path = 'cellpose_1718127286.8010929'
+        trained_model_path = '/gpfs/gsfs10/users/sagarm2/cellpose_chr/newDataSet/trainingfiles/models/cellpose_1718127286.8010929'
         model = models.CellposeModel(gpu=True, pretrained_model=trained_model_path)
 
         masks, flows, styles = model.eval([image], diameter=None, channels=[0, 0])
@@ -233,11 +273,12 @@ class ImageProcessor:
         selem = morph.disk(4)
         imDilated = morph.dilation(normalizedIm, selem)
         
-        if channel == 'DNA-FISH':
+        if channel == 'Channel 1':
             self.normalizedDNAFISH = normalized
             self.dna_fish_spots = np.argwhere(imDilated)
             self.spotLabelsDNAFISH = np.unique(self.nuclei[np.array(normalizedIm)])
-        elif channel == 'CENPC':
+        elif channel == 'Channel 2':    
+
             self.normalizedCENPC = normalized
             self.cenpc_spots = np.argwhere(imDilated)
             self.spotLabelsCENPC = np.unique(self.nuclei[np.array(normalizedIm)])
@@ -260,9 +301,10 @@ class ImageProcessor:
             numpy.ndarray: Array of centroids if spots are detected, None otherwise
         """
         try:
-            if channel_type == 'DNA-FISH':
-                labels, centroids = self.detect_spots_no_segmentation(image, threshold, channel='DNA-FISH')
+            if channel_type == 'Channel 1':
+                labels, centroids = self.detect_spots_no_segmentation(image, threshold, channel='Channel 1')
                 
+
                 if labels is not None and centroids is not None and len(centroids) > 0:
                     self.labels_dna_fish = labels
                     self.dna_fish_centroids = centroids
@@ -274,19 +316,22 @@ class ImageProcessor:
                             os.makedirs(intermediate_path, exist_ok=True)
                             np.save(os.path.join(intermediate_path, "dna_fish_spots.npy"), self.labels_dna_fish)
                             np.save(os.path.join(intermediate_path, "dna_fish_centroids.npy"), self.dna_fish_centroids)
-                            print(f"Saved DNA-FISH spots to: {intermediate_path}")
+                            print(f"Saved Channel 1 spots to: {intermediate_path}")
                         except Exception as save_error:
-                            print(f"Error saving DNA-FISH results: {save_error}")
+                            print(f"Error saving Channel 1 results: {save_error}")
                     
-                    print(f"Successfully detected {len(centroids)} DNA-FISH spots")
+
+                    print(f"Successfully detected {len(centroids)} Channel 1 spots")
                     return self.dna_fish_centroids
                 else:
-                    print("No DNA-FISH spots detected or invalid results")
+                    print("No Channel 1 spots detected or invalid results")
                     return None
                     
-            elif channel_type == 'CENPC':
-                labels, centroids = self.detect_spots_no_segmentation(image, threshold, channel='CENPC')
+
+            elif channel_type == 'Channel 2':
+                labels, centroids = self.detect_spots_no_segmentation(image, threshold, channel='Channel 2')
                 
+
                 if labels is not None and centroids is not None and len(centroids) > 0:
                     self.labels_cenpc = labels
                     self.cenpc_centroids = centroids
@@ -298,17 +343,20 @@ class ImageProcessor:
                             os.makedirs(intermediate_path, exist_ok=True)
                             np.save(os.path.join(intermediate_path, "cenpc_spots.npy"), self.labels_cenpc)
                             np.save(os.path.join(intermediate_path, "cenpc_centroids.npy"), self.cenpc_centroids)
-                            print(f"Saved CENPC spots to: {intermediate_path}")
+                            print(f"Saved Channel 2 spots to: {intermediate_path}")
                         except Exception as save_error:
-                            print(f"Error saving CENPC results: {save_error}")
+                            print(f"Error saving Channel 2 results: {save_error}")
                     
-                    print(f"Successfully detected {len(centroids)} CENPC spots")
+
+                    print(f"Successfully detected {len(centroids)} Channel 2 spots")
                     return self.cenpc_centroids
                 else:
-                    print("No CENPC spots detected or invalid results")
+
+                    print("No Channel 2 spots detected or invalid results")
                     return None
             else:
                 print(f"Unknown channel type: {channel_type}")
+
                 return None
                         
         except Exception as e:
@@ -383,14 +431,16 @@ class ImageProcessor:
 
             if len(centroids) > 0:
                 # Store results based on channel type
-                if channel == 'DNA-FISH':
+                if channel == 'Channel 1':
                     self.labels_dna_fish = labeled_spots
                     self.dna_fish_centroids = centroids
-                    print(f"DNA-FISH spots detected. Count: {len(centroids)}")
-                elif channel == 'CENPC':
+                    print(f"Channel 1 spots detected. Count: {len(centroids)}")
+
+                elif channel == 'Channel 2':
                     self.labels_cenpc = labeled_spots
                     self.cenpc_centroids = centroids
-                    print(f"CENPC spots detected. Count: {len(centroids)}")
+                    print(f"Channel 2 spots detected. Count: {len(centroids)}")
+
                 else:
                     print(f"Warning: Unknown channel {channel}")
                     return None, None
@@ -531,8 +581,9 @@ class ImageProcessor:
 
     def find_common2(self, threshold_dna_fish, threshold_cenpc):
         if self.dna_fish_spots is None or self.cenpc_spots is None:
-            raise ValueError("DNA-FISH spots or CENPC spots are not detected properly.")
+            raise ValueError("Channel 1 spots or Channel 2 spots are not detected properly.")
         
+
         dna_fish_set = set(map(tuple, self.dna_fish_spots))
         cenpc_set = set(map(tuple, self.cenpc_spots))
         common_spots = np.array(list(dna_fish_set & cenpc_set))
@@ -569,79 +620,239 @@ class ImageProcessor:
                 spot_info['Centroid'].append(centroid.tolist())
         df = pd.DataFrame(spot_info)
         return df
+    
 
-    def gen_intensity_from_df(self, intensity_image, spots_df):
+    def measure_intensity_at_spots(self, intensity_image, spots_df, channel_name):
         """
-        Generate intensity measurements from an image at specified spot locations.
+        Measure intensity values at spot locations for a single channel.
+        
+        Args:
+            intensity_image: Image to measure intensities from
+            spots_df: DataFrame with spot locations (must have 'Y' and 'X' columns)
+            channel_name: Name of the channel ('Channel1' or 'Channel2')
+            
+        Returns:
+            DataFrame with spot locations and their corresponding intensities
         """
         try:
             if spots_df is None or spots_df.empty:
-                print("No spots provided for intensity measurement")
+                print(f"No {channel_name} spots provided for intensity measurement")
                 return None
                 
             if intensity_image is None:
-                print("No intensity image provided")
+                print(f"No intensity image provided")
                 return None
                 
-            # Create a copy of the input DataFrame
-            result_df = spots_df.copy()
-            
-            # Ensure we have 'Y' and 'X' columns
-            if 'Y' not in result_df.columns or 'X' not in result_df.columns:
-                print("DataFrame must contain 'Y' and 'X' columns")
-                return None
-                
-            # Calculate intensity at each spot location
+            # Calculate intensities at spot locations
             intensities = []
-            for _, row in result_df.iterrows():
+            for _, row in spots_df.iterrows():
                 y, x = int(row['Y']), int(row['X'])
                 if 0 <= y < intensity_image.shape[0] and 0 <= x < intensity_image.shape[1]:
-                    intensity = intensity_image[y, x]
+                    # Calculate mean intensity in 5x5 region
+                    y_min, y_max = max(0, y-2), min(intensity_image.shape[0], y+3)
+                    x_min, x_max = max(0, x-2), min(intensity_image.shape[1], x+3)
+                    intensity = np.mean(intensity_image[y_min:y_max, x_min:x_max])
                     intensities.append(intensity)
                 else:
                     intensities.append(0)
                     
-            # Add intensities to the DataFrame
-            result_df['CENPC_Intensity'] = intensities
+            # Create DataFrame with spots and intensities
+            result_df = pd.DataFrame({
+                'Y': spots_df['Y'],
+                'X': spots_df['X'],
+                'Intensity': intensities
+            })
             
-            print(f"Measured {len(intensities)} intensity values")
+            print(f"Measured {len(intensities)} intensities at {channel_name} spots")
+            return result_df
+            
+        except Exception as e:
+            print(f"Error measuring intensities at {channel_name} spots: {str(e)}")
+            return None
+        
+
+    def gen_intensity_from_df(self, intensity_image_ch2, spots_df_ch1, intensity_image_ch1=None, spots_df_ch2=None):
+        """
+        Generate intensity measurements for both channels at each other's spot locations.
+        
+        Args:
+            intensity_image_ch2: Channel 2 intensity image
+            spots_df_ch1: DataFrame with Channel 1 spot locations
+            intensity_image_ch1: Channel 1 intensity image (optional)
+            spots_df_ch2: DataFrame with Channel 2 spot locations (optional)
+            
+        Returns:
+            DataFrame with both channels' spot locations and their corresponding intensities
+        """
+        try:
+            if spots_df_ch1 is None or spots_df_ch1.empty:
+                print("No Channel 1 spots provided for intensity measurement")
+                return None
+                
+            if intensity_image_ch2 is None:
+                print("No Channel 2 intensity image provided")
+                return None
+                
+            # Calculate Channel 2 intensity at Channel 1 spot locations
+            ch2_intensities = []
+            for _, row in spots_df_ch1.iterrows():
+                y, x = int(row['Y']), int(row['X'])
+                if 0 <= y < intensity_image_ch2.shape[0] and 0 <= x < intensity_image_ch2.shape[1]:
+                    # Calculate mean intensity in 5x5 region
+                    y_min, y_max = max(0, y-2), min(intensity_image_ch2.shape[0], y+3)
+                    x_min, x_max = max(0, x-2), min(intensity_image_ch2.shape[1], x+3)
+                    intensity = np.mean(intensity_image_ch2[y_min:y_max, x_min:x_max])
+                    ch2_intensities.append(intensity)
+                else:
+                    ch2_intensities.append(0)
+                    
+            # Create initial DataFrame with Channel 1 spots and Channel 2 intensities
+            result_df = pd.DataFrame({
+                'Channel1_Spot_Y': spots_df_ch1['Y'],
+                'Channel1_Spot_X': spots_df_ch1['X'],
+                'Channel2_Intensity': ch2_intensities
+            })
+            
+            # If Channel 2 spots and Channel 1 intensity image are provided
+            if spots_df_ch2 is not None and intensity_image_ch1 is not None and not spots_df_ch2.empty:
+                # Calculate Channel 1 intensity at Channel 2 spot locations
+                ch1_intensities = []
+                ch2_spot_y = []
+                ch2_spot_x = []
+                
+                for _, row in spots_df_ch2.iterrows():
+                    y, x = int(row['Y']), int(row['X'])
+                    ch2_spot_y.append(y)
+                    ch2_spot_x.append(x)
+                    
+                    if 0 <= y < intensity_image_ch1.shape[0] and 0 <= x < intensity_image_ch1.shape[1]:
+                        # Calculate mean intensity in 5x5 region
+                        y_min, y_max = max(0, y-2), min(intensity_image_ch1.shape[0], y+3)
+                        x_min, x_max = max(0, x-2), min(intensity_image_ch1.shape[1], x+3)
+                        intensity = np.mean(intensity_image_ch1[y_min:y_max, x_min:x_max])
+                        ch1_intensities.append(intensity)
+                    else:
+                        ch1_intensities.append(0)
+                
+                # Add Channel 2 spots and Channel 1 intensities
+                result_df['Channel2_Spot_Y'] = pd.Series(ch2_spot_y)
+                result_df['Channel2_Spot_X'] = pd.Series(ch2_spot_x)
+                result_df['Channel1_Intensity'] = pd.Series(ch1_intensities)
+                
+                # Copy any additional columns from the original DataFrames
+                for col in spots_df_ch1.columns:
+                    if col not in ['Y', 'X']:
+                        result_df[f'Channel1_{col}'] = spots_df_ch1[col]
+                
+                for col in spots_df_ch2.columns:
+                    if col not in ['Y', 'X']:
+                        result_df[f'Channel2_{col}'] = spots_df_ch2[col]
+                
+                print(f"Measured {len(ch2_intensities)} Channel 2 intensities and {len(ch1_intensities)} Channel 1 intensities")
+            else:
+                print(f"Measured {len(ch2_intensities)} Channel 2 intensity values")
+            
             return result_df
             
         except Exception as e:
             print(f"Error measuring intensities: {str(e)}")
-            return None
-        
-        
-    def calculate_intensity_all_dna_fish(self):
+            return None       
+    def calculate_intensity_all_cenpc(self, intensity_image_ch1=None):
         """
-        Calculate CENPC intensity at all DNA-FISH locations without segmentation.
+        Calculate Channel 1 intensity at all Channel 2 spot locations without segmentation.
+        
+        Args:
+            intensity_image_ch1: Optional Channel 1 intensity image. If not provided, uses self.img_dna_fish
+            
+        Returns:
+            pandas.DataFrame: DataFrame containing spot locations and corresponding intensities,
+                            or None if spots or intensity image are missing
         """
         try:
-            if self.dna_fish_centroids is None:
-                print("No DNA-FISH spots detected")
+            # Check for Channel 2 spots
+            if self.cenpc_centroids is None or len(self.cenpc_centroids) == 0:
+                print("No Channel 2 spots detected")
                 return None
                 
-            if self.img_cenpc is None:
-                print("CENPC image not found")
+            # Use provided intensity image or fall back to stored image
+            if intensity_image_ch1 is None:
+                intensity_image_ch1 = self.img_dna_fish
+                
+            if intensity_image_ch1 is None:
+                print("Channel 1 intensity image not found")
                 return None
                 
-            # Create DataFrame with DNA-FISH centroids
-            spots_df = pd.DataFrame(self.dna_fish_centroids, columns=['Y', 'X'])
+            # Create DataFrame with Channel 2 centroids
+            spots_df = pd.DataFrame(self.cenpc_centroids, columns=['Y', 'X'])
             
-            # Calculate CENPC intensity at each DNA-FISH location
+            # Calculate Channel 1 intensity at each Channel 2 location
             intensities = []
             for _, row in spots_df.iterrows():
                 y, x = int(row['Y']), int(row['X'])
-                if 0 <= y < self.img_cenpc.shape[0] and 0 <= x < self.img_cenpc.shape[1]:
-                    intensity = self.img_cenpc[y, x]
+                if 0 <= y < intensity_image_ch1.shape[0] and 0 <= x < intensity_image_ch1.shape[1]:
+                    # Calculate mean intensity in 5x5 region
+                    y_min, y_max = max(0, y-2), min(intensity_image_ch1.shape[0], y+3)
+                    x_min, x_max = max(0, x-2), min(intensity_image_ch1.shape[1], x+3)
+                    intensity = np.mean(intensity_image_ch1[y_min:y_max, x_min:x_max])
                     intensities.append(intensity)
                 else:
                     intensities.append(0)
             
             # Add intensities to DataFrame
-            spots_df['CENPC_Intensity'] = intensities
+            spots_df['Channel1_Intensity'] = intensities
             
-            print(f"Calculated intensities for {len(spots_df)} DNA-FISH spots")
+            print(f"Calculated intensities for {len(spots_df)} Channel 2 spots")
+            return spots_df
+            
+        except Exception as e:
+            print(f"Error calculating intensities: {str(e)}")
+            return None
+        
+    def calculate_intensity_all_dna_fish(self, intensity_image_ch2=None):
+        """
+        Calculate Channel 2 intensity at all Channel 1 spot locations without segmentation.
+        
+        Args:
+            intensity_image_ch2: Optional Channel 2 intensity image. If not provided, uses self.img_cenpc
+            
+        Returns:
+            pandas.DataFrame: DataFrame containing spot locations and corresponding intensities,
+                            or None if spots or intensity image are missing
+        """
+        try:
+            # Check for Channel 1 spots
+            if self.dna_fish_centroids is None or len(self.dna_fish_centroids) == 0:
+                print("No Channel 1 spots detected")
+                return None
+                
+            # Use provided intensity image or fall back to stored image
+            if intensity_image_ch2 is None:
+                intensity_image_ch2 = self.img_cenpc
+                
+            if intensity_image_ch2 is None:
+                print("Channel 2 intensity image not found")
+                return None
+                
+            # Create DataFrame with Channel 1 centroids
+            spots_df = pd.DataFrame(self.dna_fish_centroids, columns=['Y', 'X'])
+            
+            # Calculate Channel 2 intensity at each Channel 1 location
+            intensities = []
+            for _, row in spots_df.iterrows():
+                y, x = int(row['Y']), int(row['X'])
+                if 0 <= y < intensity_image_ch2.shape[0] and 0 <= x < intensity_image_ch2.shape[1]:
+                    # Calculate mean intensity in 5x5 region
+                    y_min, y_max = max(0, y-2), min(intensity_image_ch2.shape[0], y+3)
+                    x_min, x_max = max(0, x-2), min(intensity_image_ch2.shape[1], x+3)
+                    intensity = np.mean(intensity_image_ch2[y_min:y_max, x_min:x_max])
+                    intensities.append(intensity)
+                else:
+                    intensities.append(0)
+            
+            # Add intensities to DataFrame
+            spots_df['Channel2_Intensity'] = intensities
+            
+            print(f"Calculated intensities for {len(spots_df)} Channel 1 spots")
             return spots_df
             
         except Exception as e:
@@ -782,9 +993,10 @@ class ImageProcessor:
         
         # Update the viewer
         for layer in viewer.layers:
-            if 'DNA-FISH Spots' in layer.name:
+            if 'Channel 1 Spots' in layer.name:
                 viewer.layers.remove(layer)
         
+
         if len(self.dna_fish_centroids) > 0:
             squares = [
                 [[x - 5, y - 5], [x + 5, y - 5], [x + 5, y + 5], [x - 5, y + 5]]
@@ -796,10 +1008,86 @@ class ImageProcessor:
                 edge_color="yellow",
                 face_color=[1, 1, 0, 0.2],
                 edge_width=2,
-                name="DNA-FISH Spots",
+                name="Channel 1 Spots",
                 opacity=0.8
+
             )
 
+    def delete_cenpc_spots_with_line(self, viewer):
+        """Delete Channel 2 spots that intersect with the drawn line or points."""
+        if self.cenpc_centroids is None or len(self.cenpc_centroids) == 0:
+            return
+
+        shapes_layer = viewer.layers['Shapes']
+        
+        # Get image shape from the first image if available, otherwise use default
+        if hasattr(self, 'images') and self.images is not None and len(self.images) > 0:
+            img_shape = self.images[0].shape
+        else:
+            img_shape = (1024, 1024)  # default shape
+        
+        # Create mask for all shapes
+        line_mask = np.zeros(img_shape, dtype=bool)
+        
+        # Process all shapes (lines or points)
+        for shape_coords in shapes_layer.data:
+            if len(shape_coords) == 1:  # Single point
+                y, x = int(shape_coords[0][0]), int(shape_coords[0][1])
+                if 0 <= y < img_shape[0] and 0 <= x < img_shape[1]:
+                    line_mask[y, x] = True
+            else:  # Line
+                for i in range(len(shape_coords) - 1):
+                    start_y, start_x = int(shape_coords[i][0]), int(shape_coords[i][1])
+                    end_y, end_x = int(shape_coords[i+1][0]), int(shape_coords[i+1][1])
+                    
+                    rr, cc = line(start_y, start_x, end_y, end_x)
+                    valid_points = (rr >= 0) & (rr < img_shape[0]) & (cc >= 0) & (cc < img_shape[1])
+                    rr, cc = rr[valid_points], cc[valid_points]
+                    line_mask[rr, cc] = True
+        
+        # Buffer the mask
+        line_mask = binary_dilation(line_mask, iterations=3)
+        
+        # Find spots that don't intersect with the mask
+        kept_spots = []
+        square_size = 5  # Half size of the square around each spot
+        
+        for spot in self.cenpc_centroids:
+            spot_y, spot_x = int(spot[0]), int(spot[1])
+            
+            # Check if any part of the square around the spot intersects with the line
+            y_min = max(0, spot_y - square_size)
+            y_max = min(img_shape[0], spot_y + square_size + 1)
+            x_min = max(0, spot_x - square_size)
+            x_max = min(img_shape[1], spot_x + square_size + 1)
+            
+            square_region = line_mask[y_min:y_max, x_min:x_max]
+            if not np.any(square_region):  # If no intersection with the line
+                kept_spots.append(spot)
+        
+        # Update centroids
+        self.cenpc_centroids = np.array(kept_spots) if kept_spots else np.array([])
+        
+        # Update the viewer
+        for layer in viewer.layers:
+            if 'Channel 2 Spots' in layer.name:
+                viewer.layers.remove(layer)
+        
+        if len(self.cenpc_centroids) > 0:
+            squares = [
+                [[x - 5, y - 5], [x + 5, y - 5], [x + 5, y + 5], [x - 5, y + 5]]
+                for x, y in self.cenpc_centroids
+            ]
+            viewer.add_shapes(
+                squares,
+                shape_type='polygon',
+                edge_color="skyblue",
+                face_color=[0, 0.5, 1, 0.2],
+                edge_width=2,
+                name="Channel 2 Spots",
+                opacity=0.8
+            )
+            
 
     def split_chromosome_with_line_BU(self, line_coords):
         rr, cc = line_coords.T.astype(int)

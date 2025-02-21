@@ -24,6 +24,10 @@ from skimage.draw import line
 from image_processor import ImageProcessor
 from batch_processor import BatchProcessor
 from segmentation_postprocessing import SegmentationPostprocessing
+from datetime import datetime
+
+from PIL import Image
+import matplotlib.pyplot as plt
 
 # Initialize viewer and processor
 viewer = napari.Viewer()
@@ -111,7 +115,7 @@ class ControlWidgetDNAFISH(QWidget):
     def reset_dna_fish_flag(self):
         global detect_dna_fish_done
         detect_dna_fish_done = False
-        show_info("Threshold slider changed, reset spot detection flag for DNA-FISH channel")
+        show_info("Threshold slider changed, reset spot detection flag for Channel 1")
 
 
 class ControlWidgetDNAFISH1(QWidget):
@@ -134,11 +138,15 @@ class ControlWidgetDNAFISH1(QWidget):
     def reset_dna_fish_flag(self):
         global detect_dna_fish_done
         detect_dna_fish_done = False
-        show_info("Threshold slider changed, reset spot detection flag for DNA-FISH channel")
+        show_info("Threshold slider changed, reset spot detection flag for Channel 1")
+
+
 class ControlWidgetCENPC(QWidget):
     def __init__(self):
         super().__init__()
         self.layout = QVBoxLayout()
+        
+        # Slider
         self.slider = QLabeledSlider(orientation='horizontal')
         self.slider.setRange(0, 100)
         self.slider.setValue(40)
@@ -146,16 +154,60 @@ class ControlWidgetCENPC(QWidget):
         self.slider.valueChanged.connect(self.reset_cenpc_flag)
         self.layout.addWidget(self.slider)
 
+        # Detect button
         self.detect_cenpc_spots_button = detect_cenpc_spots.native
         self.detect_cenpc_spots_button.setStyleSheet(BUTTON_STYLE)
         self.layout.addWidget(self.detect_cenpc_spots_button)
 
+        # Create horizontal layout for delete and save buttons
+        self.button_layout = QHBoxLayout()
+        
+        # Delete button
+        self.delete_cenpc_spots_button = delete_cenpc_spots.native
+        self.delete_cenpc_spots_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ff6b6b;
+                color: white;
+                border-radius: 5px;
+                padding: 5px;
+                min-height: 25px;
+            }
+            QPushButton:hover {
+                background-color: #ff8787;
+            }
+            QPushButton:pressed {
+                background-color: #fa5252;
+            }
+        """)
+        self.button_layout.addWidget(self.delete_cenpc_spots_button)
+
+        # Save button
+        self.save_cenpc_spots_button = save_cenpc_spots.native
+        self.save_cenpc_spots_button.setStyleSheet("""
+            QPushButton {
+                background-color: #40c057;
+                color: white;
+                border-radius: 5px;
+                padding: 5px;
+                min-height: 25px;
+            }
+            QPushButton:hover {
+                background-color: #51cf66;
+            }
+            QPushButton:pressed {
+                background-color: #37b24d;
+            }
+        """)
+        self.button_layout.addWidget(self.save_cenpc_spots_button)
+
+        # Add button layout to main layout
+        self.layout.addLayout(self.button_layout)
         self.setLayout(self.layout)
 
     def reset_cenpc_flag(self):
         global detect_cenpc_done
         detect_cenpc_done = False
-        show_info("Threshold slider changed, reset spot detection flag for CENPC channel")
+        show_info("Threshold slider changed, reset spot detection flag for Channel 2")
 
 class ControlWidgetCENPC1(QWidget):
     def __init__(self):
@@ -472,6 +524,10 @@ def load_images():
             
             # Store full paths but display only folder names
             for folder_name in os.listdir(root_folder):
+                # Skip the "Exported Segmentation" folder
+                if folder_name == "Exported Segmentation":
+                    continue
+                    
                 folder_path = os.path.join(root_folder, folder_name)
                 if os.path.isdir(folder_path):
                     item = QListWidgetItem(os.path.basename(folder_path))
@@ -547,8 +603,9 @@ def load_images_BU2():
                             edge_color="yellow",
                             face_color=[1, 1, 0, 0.2],
                             edge_width=2,
-                            name="DNA-FISH Spots",
+                            name="Channel 1 Spots",
                             opacity=0.8
+
                         )
                         dna_fish_counter.update_count(len(processor.dna_fish_centroids))
                     detect_dna_fish_done = True
@@ -570,11 +627,12 @@ def load_images_BU2():
                             edge_color="skyblue",
                             face_color=[0, 0.5, 1, 0.2],
                             edge_width=2,
-                            name="CENPC Spots",
+                            name="Channel 2 Spots",
                             opacity=0.8
                         )
                         cenpc_counter.update_count(len(processor.cenpc_centroids))
                     detect_cenpc_done = True
+
             else:
                 segment_done = False
                 detect_dna_fish_done = False
@@ -583,6 +641,94 @@ def load_images_BU2():
             show_info(f"Loaded images from: {os.path.basename(folder_path)}")
         except Exception as e:
             show_info(f"Error loading images: {e}")
+
+
+def save_segmentation_for_folder(folder_path):
+    """Helper function to save segmentation for a single folder"""
+    try:
+        # Check for intermediate results folder
+        intermediate_path = os.path.join(folder_path, "intermediate_results")
+        seg_file = os.path.join(intermediate_path, "segmentation.npy")
+        
+        if os.path.exists(seg_file):
+            # Load the segmentation
+            segmentation = np.load(seg_file)
+            
+            # Convert to uint16 for saving as PNG
+            segmentation_uint16 = ((segmentation > 0) * segmentation).astype(np.uint16)
+            
+            # Create "Exported Segmentation" folder in root directory
+            root_dir = os.path.dirname(folder_path)
+            export_dir = os.path.join(root_dir, "Exported Segmentation")
+            os.makedirs(export_dir, exist_ok=True)
+            
+            # Save as PNG in export directory
+            folder_name = os.path.basename(folder_path)
+            png_path = os.path.join(export_dir, f"{folder_name}_segmentation.png")
+            Image.fromarray(segmentation_uint16).save(png_path)
+            
+    except Exception as e:
+        show_info(f"Error processing folder {os.path.basename(folder_path)}: {str(e)}")
+
+@magicgui(call_button="Save Segmentation as PNG")
+def save_segmentation():
+    try:
+        # Get the checkbox state
+        save_all = save_all_checkbox.isChecked()
+        
+        if save_all:
+            # Process all folders in the list
+            for i in range(folder_list_widget.count()):
+                folder_path = folder_list_widget.item(i).data(Qt.UserRole)
+                save_segmentation_for_folder(folder_path)
+            show_info("Saved segmentation PNGs for all folders in 'Exported Segmentation' directory")
+        else:
+            # Process only current folder
+            if current_folder_path:
+                save_segmentation_for_folder(current_folder_path)
+                show_info("Saved segmentation PNG in 'Exported Segmentation' directory")
+            else:
+                show_info("No folder selected")
+    except Exception as e:
+        show_info(f"Error saving segmentation: {str(e)}")
+
+# Create a horizontal layout for the save segmentation button and checkbox
+class SaveSegmentationWidget(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.layout = QHBoxLayout()
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Save button
+        self.save_button = save_segmentation.native
+        self.save_button.setStyleSheet(BUTTON_STYLE)
+        self.layout.addWidget(self.save_button)
+        
+        # Checkbox for "All"
+        global save_all_checkbox  # Make it accessible to the save_segmentation function
+        save_all_checkbox = QCheckBox("All")
+        save_all_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: white;
+                spacing: 5px;
+            }
+            QCheckBox::indicator {
+                width: 13px;
+                height: 13px;
+            }
+            QCheckBox::indicator:unchecked {
+                background-color: #2d2d2d;
+                border: 1px solid #4a4a4a;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #40c057;
+                border: 1px solid #2d2d2d;
+            }
+        """)
+        self.layout.addWidget(save_all_checkbox)
+        
+        self.setLayout(self.layout)
+
 
 
 def load_images0_BU():
@@ -631,14 +777,14 @@ from napari.utils.colormaps import DirectLabelColormap
 def detect_dna_fish_spots():
     global detect_dna_fish_done, images, current_folder_path
     if detect_dna_fish_done:
-        show_info("Spot detection for DNA-FISH has already been done.")
+        show_info("Spot detection for channel 1 has already been done.")
         return
 
     threshold = control_widget_dna_fish.slider.value() / 100
     if images[1] is not None:
         try:
             # Get centroids based on segmentation mode
-            centroids = processor.detect_spots_cent(images[1], 'DNA-FISH', threshold, save_dir=current_folder_path)
+            centroids = processor.detect_spots_cent(images[1], 'Channel 1', threshold, save_dir=current_folder_path)
             
             # Visualize spots if centroids were found
             if centroids is not None and len(centroids) > 0:
@@ -654,7 +800,7 @@ def detect_dna_fish_spots():
                 
                 # Remove existing DNA-FISH layers
                 for layer in list(viewer.layers):
-                    if layer.name in ["DNA-FISH Spots", "Centroids in DNA-FISH"]:
+                    if layer.name in ["Channel 1 Spots", "Centroids in Channel 1"]:  
                         viewer.layers.remove(layer)
 
                 # Add new visualization layers
@@ -664,22 +810,26 @@ def detect_dna_fish_spots():
                     edge_color="yellow",
                     face_color=[1, 1, 0, 0.2],
                     edge_width=2,
-                    name="DNA-FISH Spots",
+                    name="Channel 1 Spots",
                     opacity=0.8
+
                 )
                 detect_dna_fish_done = True
-                show_info(f"Detected {spot_count} spots in DNA-FISH image with threshold {threshold}")
+                show_info(f"Detected {spot_count} spots in channel 1 image with threshold {threshold}")
             else:
-                show_info("No spots detected in DNA-FISH image")
+                show_info("No spots detected in channel 1 image")
+
                 detect_dna_fish_done = False
                 dna_fish_counter.update_count(0)
                 
+
         except Exception as e:
             show_info(f"Error detecting spots: {str(e)}")
             detect_dna_fish_done = False
             dna_fish_counter.update_count(0)
     else:
-        show_info("DNA-FISH image not loaded")
+        show_info("Channel 1 image not loaded")
+
 
 
 @magicgui(call_button="Delete channel 1 Spots")
@@ -688,9 +838,10 @@ def delete_dna_fish_spots():
         shapes_layer = viewer.layers['Shapes']
         
         if processor.dna_fish_centroids is None:
-            show_info("No DNA-FISH spots detected yet")
+            show_info("No channel 1 spots detected yet")
             return
             
+
         if len(shapes_layer.data) == 0:
             show_info("Please draw a line or select points to remove spots.")
             return
@@ -712,16 +863,64 @@ def delete_dna_fish_spots():
 @magicgui(call_button="Save channel 1 Spots")
 def save_dna_fish_spots():
     if processor.dna_fish_centroids is None:
-        show_info("No DNA-FISH spots to save")
+        show_info("No Channel 1 spots to save")
+        return
+        
+
+    if current_folder_path:
+        intermediate_path = os.path.join(current_folder_path, "intermediate_results")
+        os.makedirs(intermediate_path, exist_ok=True)
+        np.save(os.path.join(intermediate_path, "dna_fish_centroids.npy"), processor.dna_fish_centroids) # check this
+        show_info("Channel 1 spots saved successfully")
+    else:
+        show_info("No folder selected")
+
+
+
+
+
+@magicgui(call_button="Delete Channel 2 Spots")
+def delete_cenpc_spots():
+    try:
+        shapes_layer = viewer.layers['Shapes']
+        
+        if processor.cenpc_centroids is None:
+            show_info("No Channel 2 spots detected yet")
+            return
+            
+        if len(shapes_layer.data) == 0:
+            show_info("Please draw a line or select points to remove spots.")
+            return
+            
+        # Delete spots
+        processor.delete_cenpc_spots_with_line(viewer)
+        
+        # Update spot counter
+        if processor.cenpc_centroids is not None:
+            cenpc_counter.update_count(len(processor.cenpc_centroids))
+            
+        # Clear the shapes layer after deletion
+        shapes_layer.data = []
+        
+    except Exception as e:
+        show_info(f"Error during spot deletion: {str(e)}")
+
+@magicgui(call_button="Save Channel 2 Spots")
+def save_cenpc_spots():
+    if processor.cenpc_centroids is None:
+        show_info("No Channel 2 spots to save")
         return
         
     if current_folder_path:
         intermediate_path = os.path.join(current_folder_path, "intermediate_results")
         os.makedirs(intermediate_path, exist_ok=True)
-        np.save(os.path.join(intermediate_path, "dna_fish_centroids.npy"), processor.dna_fish_centroids)
-        show_info("DNA-FISH spots saved successfully")
+        np.save(os.path.join(intermediate_path, "cenpc_centroids.npy"), processor.cenpc_centroids)
+        show_info("Channel 2 spots saved successfully")
     else:
         show_info("No folder selected")
+
+
+
 
 def delete_dna_fish_spots_with_line(self, line_coords):
     """Delete DNA-FISH spots that intersect with the drawn line."""
@@ -769,9 +968,10 @@ def delete_dna_fish_spots_with_line(self, line_coords):
     if len(viewer.layers) > 0:
         # Remove existing DNA-FISH spots layer
         for layer in viewer.layers:
-            if 'DNA-FISH Spots' in layer.name:
+            if 'Channel 1 Spots' in layer.name:
                 viewer.layers.remove(layer)
         
+
         # Add updated squares for remaining spots
         if len(self.dna_fish_centroids) > 0:
             squares = [
@@ -784,8 +984,9 @@ def delete_dna_fish_spots_with_line(self, line_coords):
                 edge_color="yellow",
                 face_color=[1, 1, 0, 0.2],
                 edge_width=2,
-                name="DNA-FISH Spots",
+                name="Channel 1 Spots",
                 opacity=0.8
+
             )
 
 
@@ -793,8 +994,9 @@ def delete_dna_fish_spots_with_line(self, line_coords):
 def detect_cenpc_spots():
     global detect_cenpc_done, images
     if detect_cenpc_done:
-        show_info("Spot detection for CENPC has already been done.")
+        show_info("Spot detection for channel 2 has already been done.")
         return
+
 
     threshold = control_widget_cenpc.slider.value() / 100
     if images[2] is not None:
@@ -802,11 +1004,13 @@ def detect_cenpc_spots():
             centroids = None
             # Get centroids based on segmentation mode
             if segment_dapi_widget.is_checked():
-                processor.detect_spots_cent(images[2], 'CENPC', threshold, save_dir=current_folder_path)
+                processor.detect_spots_cent(images[2], 'Channel 2', threshold, save_dir=current_folder_path)
                 centroids = processor.cenpc_centroids
             else:
-                processor.detect_spots_cent(images[2], 'CENPC', threshold, save_dir=current_folder_path)
+
+                processor.detect_spots_cent(images[2], 'Channel 2', threshold, save_dir=current_folder_path)
                 centroids = processor.cenpc_centroids
+
 
             # Visualize spots if centroids were found
             if centroids is not None and len(centroids) > 0:
@@ -822,7 +1026,7 @@ def detect_cenpc_spots():
                 
                 # Remove existing CENPC layers
                 for layer in list(viewer.layers):
-                    if layer.name in ["CENPC Spots", "Centroids in CENPC"]:
+                    if layer.name in ["Channel 2 Spots", "Centroids in Channel 2"]:
                         viewer.layers.remove(layer)
 
                 # Add new visualization layer
@@ -832,15 +1036,15 @@ def detect_cenpc_spots():
                     edge_color="skyblue",
                     face_color=[0, 0.5, 1, 0.2],
                     edge_width=2,
-                    name="CENPC Spots",
+                    name="Channel 2 Spots",
                     opacity=0.8
+
                 )
 
-            show_info(f"Detected and labeled spots in CENPC image with threshold {threshold}")
+            show_info(f"Detected and labeled spots in channel 2 image with threshold {threshold}")
             detect_cenpc_done = True
         except Exception as e:
             show_info(f"Error detecting spots: {e}")
-
 
 
 
@@ -865,117 +1069,338 @@ def find_common():
             
         viewer.add_labels(common_nuclei, name="Matched Chromosome")
         show_info("Found common labels and updated the view.")
+        return common_nuclei  # Add this return statement
     except Exception as e:
         show_info(f"Error finding common labels: {e}")
+        return None
 
-@magicgui(call_button="Get Intensity at channel 2 Location")
+
+
+@magicgui(call_button="Get Intensity at Spots Locations")
 def get_intensity_at_cenpc_location():
     try:
-        if segment_dapi_widget.is_checked():
-            # Case 1: No segmentation (checkbox is checked)
-            show_info("Calculating intensity at all DNA-FISH locations without segmentation.")
-            df_with_cenpc_inten = processor.calculate_intensity_all_dna_fish()
+        # Create intermediate_results directory if it doesn't exist
+        if not current_folder_path:
+            show_info("No folder selected")
+            return
+            
+        intermediate_path = os.path.join(current_folder_path, "intermediate_results")
+        os.makedirs(intermediate_path, exist_ok=True)
+
+        # Basic validation checks with spot counts
+        if processor.dna_fish_centroids is None or len(processor.dna_fish_centroids) == 0:
+            show_info("Please detect Channel 1 spots first")
+            return
         else:
-            # Case 2: With segmentation (checkbox is unchecked)
-            show_info("Calculating intensity at DNA-FISH locations in segmented regions.")
+            print(f"Number of Channel 1 spots: {len(processor.dna_fish_centroids)}")
+            
+        if processor.cenpc_centroids is None or len(processor.cenpc_centroids) == 0:
+            show_info("Please detect Channel 2 spots first")
+            return
+        else:
+            print(f"Number of Channel 2 spots: {len(processor.cenpc_centroids)}")
+            
+        if images[1] is None or images[2] is None:
+            show_info("Both channel images are required")
+            return
+
+        # Set the images in processor
+        processor.img_dna_fish = images[1]
+        processor.img_cenpc = images[2]
+
+        # Initialize DataFrames
+        df_common_dna_fish = None
+        df_common_cenpc = None
+
+        # Process based on segmentation mode
+        if segment_dapi_widget.is_checked():
+            show_info("Calculating intensities at both channel locations without segmentation.")
+            df_common_dna_fish = pd.DataFrame(processor.dna_fish_centroids, columns=['Y', 'X'])
+            df_common_cenpc = pd.DataFrame(processor.cenpc_centroids, columns=['Y', 'X'])
+            
+            print(f"Channel 1 spots DataFrame shape: {df_common_dna_fish.shape}")
+            print(f"Channel 2 spots DataFrame shape: {df_common_cenpc.shape}")
+            
+        else:
+            show_info("Calculating intensities at both channel locations in segmented regions.")
             if processor.nuclei is None:
                 show_info("Please segment the image first")
                 return
                 
-            if processor.df_centroid_dna_fish is None:
-                show_info("Please detect DNA-FISH spots first")
+            common_nuclei = processor.find_common()
+            if common_nuclei is None:
+                show_info("No common regions found for intensity calculation")
                 return
-                
-            if processor.img_cenpc is None:
-                show_info("CENPC image not found")
-                return
-                
-            df_with_cenpc_inten = processor.gen_intensity_from_df(
-                processor.img_cenpc, 
-                processor.df_centroid_dna_fish
-            )
 
-        if df_with_cenpc_inten is not None and not df_with_cenpc_inten.empty:
-            # Save results
-            folder_name = os.path.basename(current_folder_path)
-            save_path = os.path.join(current_folder_path, f"{folder_name}_intensity.csv")
-            df_with_cenpc_inten.to_csv(save_path, index=False)
-            show_info(f"Intensity data saved to: {save_path}")
-            print("\nIntensity measurements:")
-            print(df_with_cenpc_inten)
+            # Get spots only in common regions
+            df_common_dna_fish = processor.get_spots_in_common_regions(
+                pd.DataFrame(processor.dna_fish_centroids, columns=['Y', 'X']), 
+                common_nuclei
+            )
+            df_common_cenpc = processor.get_spots_in_common_regions(
+                pd.DataFrame(processor.cenpc_centroids, columns=['Y', 'X']), 
+                common_nuclei
+            )
+            
+            print(f"Channel 1 spots in common regions: {len(df_common_dna_fish) if df_common_dna_fish is not None else 0}")
+            print(f"Channel 2 spots in common regions: {len(df_common_cenpc) if df_common_cenpc is not None else 0}")
+            
+            if df_common_dna_fish is None or df_common_cenpc is None:
+                show_info("No spots found in common regions")
+                return
+
+        # Calculate intensities for both channels independently
+        df_ch2_at_ch1 = processor.measure_intensity_at_spots(
+            intensity_image=processor.img_cenpc,  # Measure Channel 2 intensity
+            spots_df=df_common_dna_fish,         # at Channel 1 spots
+            channel_name='Channel1'
+        )
+
+        df_ch1_at_ch2 = processor.measure_intensity_at_spots(
+            intensity_image=processor.img_dna_fish,  # Measure Channel 1 intensity
+            spots_df=df_common_cenpc,               # at Channel 2 spots
+            channel_name='Channel2'
+        )
+
+        folder_name = os.path.basename(current_folder_path)
+        saved_files = []
+
+        # Save and process Channel 2 intensity at Channel 1 spots
+        if df_ch2_at_ch1 is not None and not df_ch2_at_ch1.empty:
+            df_ch2_at_ch1['Skip_Segmentation'] = segment_dapi_widget.is_checked()
+            df_ch2_at_ch1['Folder'] = folder_name
+            
+            # Remove any rows with NaN values
+            df_ch2_at_ch1 = df_ch2_at_ch1.dropna()
+            
+            if len(df_ch2_at_ch1) > 0:
+                save_path = os.path.join(intermediate_path, f"{folder_name}_ch2_intensity_at_ch1_spots.csv")
+                df_ch2_at_ch1.to_csv(save_path, index=False)
+                saved_files.append(save_path)
+                
+                print("\nChannel 2 intensity at Channel 1 spots:")
+                print(f"Mean intensity: {df_ch2_at_ch1['Intensity'].mean():.2f}")
+                print(f"Median intensity: {df_ch2_at_ch1['Intensity'].median():.2f}")
+                print(f"Standard deviation: {df_ch2_at_ch1['Intensity'].std():.2f}")
+
+        # Save and process Channel 1 intensity at Channel 2 spots
+        if df_ch1_at_ch2 is not None and not df_ch1_at_ch2.empty:
+            df_ch1_at_ch2['Skip_Segmentation'] = segment_dapi_widget.is_checked()
+            df_ch1_at_ch2['Folder'] = folder_name
+            
+            # Remove any rows with NaN values
+            df_ch1_at_ch2 = df_ch1_at_ch2.dropna()
+            
+            if len(df_ch1_at_ch2) > 0:
+                save_path = os.path.join(intermediate_path, f"{folder_name}_ch1_intensity_at_ch2_spots.csv")
+                df_ch1_at_ch2.to_csv(save_path, index=False)
+                saved_files.append(save_path)
+                
+                print("\nChannel 1 intensity at Channel 2 spots:")
+                print(f"Mean intensity: {df_ch1_at_ch2['Intensity'].mean():.2f}")
+                print(f"Median intensity: {df_ch1_at_ch2['Intensity'].median():.2f}")
+                print(f"Standard deviation: {df_ch1_at_ch2['Intensity'].std():.2f}")
+
+        if saved_files:
+            show_info("Intensity measurements saved to:\n" + "\n".join(saved_files))
         else:
-            show_info("No intensity measurements found")
+            show_info("No intensity measurements were saved")
             
     except Exception as e:
-        show_info(f"Error calculating intensity: {str(e)}")
+        show_info(f"Error measuring intensities: {str(e)}")
+        print(f"Detailed error: {str(e)}")  # More detailed error in console
 
+
+def get_spots_in_common_regions(self, spots_df, common_nuclei):
+    """
+    Filter spots DataFrame to only include spots in common regions.
+    
+    Args:
+        spots_df: DataFrame with spot coordinates
+        common_nuclei: Label image of common regions
         
+    Returns:
+        DataFrame with only spots in common regions
+    """
+    if spots_df is None or common_nuclei is None:
+        return None
+        
+    # Filter spots to only those in common regions
+    common_spots = []
+    for _, row in spots_df.iterrows():
+        y, x = int(row['Y']), int(row['X'])
+        if 0 <= y < common_nuclei.shape[0] and 0 <= x < common_nuclei.shape[1]:
+            if common_nuclei[y, x] > 0:  # spot is in a common region
+                common_spots.append(row)
+    
+    return pd.DataFrame(common_spots)
+
+
 @magicgui(call_button="Run All")
 def run_all():
-    global images
+    global images, current_folder_path
     try:
+        if not current_folder_path:
+            show_info("No folder selected")
+            return
+            
         threshold_dna_fish = control_widget_dna_fish.slider.value() / 100
         threshold_cenpc = control_widget_cenpc.slider.value() / 100
 
         if all(img is not None for img in images if img is not None):
+            # Create intermediate_results directory
+            intermediate_path = os.path.join(current_folder_path, "intermediate_results")
+            os.makedirs(intermediate_path, exist_ok=True)
+
+            # Remove existing spot layers before processing
+            for layer in list(viewer.layers):
+                if layer.name in ["Channel 1 Spots", "Channel 2 Spots", "Cellpose Segmented", "Matched Chromosome"]:
+                    viewer.layers.remove(layer)
+
             # Case 1: No Segmentation (checkbox checked)
             if segment_dapi_widget.is_checked():
                 # Detect spots without segmentation
-                processor.detect_spots_cent(images[0], 'DNA-FISH', threshold_dna_fish, save_dir=current_folder_path)
-                processor.detect_spots_cent(images[1], 'CENPC', threshold_cenpc, save_dir=current_folder_path)
+                processor.detect_spots_cent(images[1], 'Channel 1', threshold_dna_fish, save_dir=current_folder_path)
+                processor.detect_spots_cent(images[2], 'Channel 2', threshold_cenpc, save_dir=current_folder_path)
                 
-                # Update spot counters
-                if processor.dna_fish_centroids is not None:
-                    dna_fish_counter.update_count(len(processor.dna_fish_centroids))
-                if processor.cenpc_centroids is not None:
-                    cenpc_counter.update_count(len(processor.cenpc_centroids))
+                df_common_dna_fish = pd.DataFrame(processor.dna_fish_centroids, columns=['Y', 'X'])
+                df_common_cenpc = pd.DataFrame(processor.cenpc_centroids, columns=['Y', 'X'])
                 
-                # Calculate intensities
-                df_with_cenpc_inten = processor.calculate_intensity_all_dna_fish()
-
             # Case 2: With Segmentation (checkbox unchecked)
             else:
-                # Segment DAPI
-                masks = processor.segment_image(images[0], save_dir=current_folder_path)
-                viewer.add_labels(masks, name="Cellpose Segmented")
-                chromosome_counter.update_count(len(np.unique(masks)) - 1)
+                try:
+                    # Segment DAPI
+                    masks = processor.segment_image(images[0], save_dir=current_folder_path)
+                    if masks is None:
+                        show_info("Segmentation failed")
+                        return
+                        
+                    viewer.add_labels(masks, name="Cellpose Segmented")
+                    chromosome_counter.update_count(len(np.unique(masks)) - 1)
+                except Exception as e:
+                    show_info(f"Error during segmentation: {str(e)}")
+                    return
                 
                 # Detect spots
-                processor.detect_spots_cent(images[1], 'DNA-FISH', threshold_dna_fish, save_dir=current_folder_path)
-                processor.detect_spots_cent(images[2], 'CENPC', threshold_cenpc, save_dir=current_folder_path)
+                processor.detect_spots_cent(images[1], 'Channel 1', threshold_dna_fish, save_dir=current_folder_path)
+                processor.detect_spots_cent(images[2], 'Channel 2', threshold_cenpc, save_dir=current_folder_path)
 
-                # Update spot counters
-                if processor.dna_fish_centroids is not None:
-                    dna_fish_counter.update_count(len(processor.dna_fish_centroids))
-                if processor.cenpc_centroids is not None:
-                    cenpc_counter.update_count(len(processor.cenpc_centroids))
+                # Find common regions and get spots in those regions
+                common_nuclei = processor.find_common()
+                if common_nuclei is None:
+                    show_info("No common regions found")
+                    return
 
-                # Find common regions (saving is handled within find_common)
-                find_common()
+                viewer.add_labels(common_nuclei, name="Matched Chromosome")
 
-                # Calculate intensities
-                df_with_cenpc_inten = processor.gen_intensity_from_df(
-                    processor.img_cenpc,
-                    processor.df_centroid_dna_fish
+                df_common_dna_fish = processor.get_spots_in_common_regions(
+                    pd.DataFrame(processor.dna_fish_centroids, columns=['Y', 'X']), 
+                    common_nuclei
+                )
+                df_common_cenpc = processor.get_spots_in_common_regions(
+                    pd.DataFrame(processor.cenpc_centroids, columns=['Y', 'X']), 
+                    common_nuclei
                 )
 
-            # Save intensity results
-            if df_with_cenpc_inten is not None and not df_with_cenpc_inten.empty:
-                folder_name = os.path.basename(current_folder_path)
-                save_path = os.path.join(current_folder_path, f"{folder_name}_intensity.csv")
-                df_with_cenpc_inten.to_csv(save_path, index=False)
-                show_info(f"Intensity data saved to: {save_path}")
-                print("\nIntensity measurements:")
-                print(df_with_cenpc_inten)
+            # Update spot visualization and counters
+            if processor.dna_fish_centroids is not None:
+                dna_fish_counter.update_count(len(processor.dna_fish_centroids))
+                squares = [
+                    [[x - 5, y - 5], [x + 5, y - 5], [x + 5, y + 5], [x - 5, y + 5]]
+                    for x, y in processor.dna_fish_centroids
+                ]
+                viewer.add_shapes(
+                    squares,
+                    shape_type='polygon',
+                    edge_color="yellow",
+                    face_color=[1, 1, 0, 0.2],
+                    edge_width=2,
+                    name="Channel 1 Spots",
+                    opacity=0.8
+                )
+
+            if processor.cenpc_centroids is not None:
+                cenpc_counter.update_count(len(processor.cenpc_centroids))
+                squares = [
+                    [[x - 5, y - 5], [x + 5, y - 5], [x + 5, y + 5], [x - 5, y + 5]]
+                    for x, y in processor.cenpc_centroids
+                ]
+                viewer.add_shapes(
+                    squares,
+                    shape_type='polygon',
+                    edge_color="skyblue",
+                    face_color=[0, 0.5, 1, 0.2],
+                    edge_width=2,
+                    name="Channel 2 Spots",
+                    opacity=0.8
+                )
+
+            # Calculate intensities for both channels independently
+            df_ch2_at_ch1 = processor.measure_intensity_at_spots(
+                intensity_image=processor.img_cenpc,  # Measure Channel 2 intensity
+                spots_df=df_common_dna_fish,         # at Channel 1 spots
+                channel_name='Channel1'
+            )
+
+            df_ch1_at_ch2 = processor.measure_intensity_at_spots(
+                intensity_image=processor.img_dna_fish,  # Measure Channel 1 intensity
+                spots_df=df_common_cenpc,               # at Channel 2 spots
+                channel_name='Channel2'
+            )
+
+            folder_name = os.path.basename(current_folder_path)
+            saved_files = []
+
+            # Save and process Channel 2 intensity at Channel 1 spots
+            if df_ch2_at_ch1 is not None and not df_ch2_at_ch1.empty:
+                df_ch2_at_ch1['Skip_Segmentation'] = segment_dapi_widget.is_checked()
+                df_ch2_at_ch1['Folder'] = folder_name
+                df_ch2_at_ch1['Channel1_Threshold'] = threshold_dna_fish
+                df_ch2_at_ch1['Channel2_Threshold'] = threshold_cenpc
+                
+                # Remove any rows with NaN values
+                df_ch2_at_ch1 = df_ch2_at_ch1.dropna()
+                
+                if len(df_ch2_at_ch1) > 0:
+                    save_path = os.path.join(intermediate_path, f"{folder_name}_ch2_intensity_at_ch1_spots.csv")
+                    df_ch2_at_ch1.to_csv(save_path, index=False)
+                    saved_files.append(save_path)
+                    
+                    print("\nChannel 2 intensity at Channel 1 spots:")
+                    print(f"Mean intensity: {df_ch2_at_ch1['Intensity'].mean():.2f}")
+                    print(f"Median intensity: {df_ch2_at_ch1['Intensity'].median():.2f}")
+                    print(f"Standard deviation: {df_ch2_at_ch1['Intensity'].std():.2f}")
+
+            # Save and process Channel 1 intensity at Channel 2 spots
+            if df_ch1_at_ch2 is not None and not df_ch1_at_ch2.empty:
+                df_ch1_at_ch2['Skip_Segmentation'] = segment_dapi_widget.is_checked()
+                df_ch1_at_ch2['Folder'] = folder_name
+                df_ch1_at_ch2['Channel1_Threshold'] = threshold_dna_fish
+                df_ch1_at_ch2['Channel2_Threshold'] = threshold_cenpc
+                
+                # Remove any rows with NaN values
+                df_ch1_at_ch2 = df_ch1_at_ch2.dropna()
+                
+                if len(df_ch1_at_ch2) > 0:
+                    save_path = os.path.join(intermediate_path, f"{folder_name}_ch1_intensity_at_ch2_spots.csv")
+                    df_ch1_at_ch2.to_csv(save_path, index=False)
+                    saved_files.append(save_path)
+                    
+                    print("\nChannel 1 intensity at Channel 2 spots:")
+                    print(f"Mean intensity: {df_ch1_at_ch2['Intensity'].mean():.2f}")
+                    print(f"Median intensity: {df_ch1_at_ch2['Intensity'].median():.2f}")
+                    print(f"Standard deviation: {df_ch1_at_ch2['Intensity'].std():.2f}")
+
+            if saved_files:
+                show_info("Intensity measurements saved to:\n" + "\n".join(saved_files))
             else:
-                show_info("No intensity measurements found")
+                show_info("No intensity measurements were saved")
 
             show_info("Run all processing completed")
         else:
             show_info("Ensure that all images are loaded")
     except Exception as e:
-        show_info(f"Error during run all processing: {e}")
-
+        show_info(f"Error during run all processing: {str(e)}")
 
 @magicgui(call_button="Batch Load")
 def batch_load():
@@ -987,6 +1412,10 @@ def batch_load():
             
             # Store full paths but display only folder names
             for folder_name in os.listdir(root_folder):
+                # Skip the "Exported Segmentation" folder
+                if folder_name == "Exported Segmentation":
+                    continue
+                    
                 folder_path = os.path.join(root_folder, folder_name)
                 if os.path.isdir(folder_path):
                     item = QListWidgetItem(os.path.basename(folder_path))
@@ -1031,12 +1460,13 @@ def on_folder_selected():
                 
                 if segment_dapi_widget.is_checked():
                     images.insert(0, None)  # Add None for DAPI to images
-                    viewer.add_image(images[1], name='DNA-FISH')
-                    viewer.add_image(images[2], name='CENPC')
+                    viewer.add_image(images[1], name='Channel 1')
+                    viewer.add_image(images[2], name='Channel 2')
                 else:
                     viewer.add_image(images[0], name='DAPI')
-                    viewer.add_image(images[1], name='DNA-FISH')
-                    viewer.add_image(images[2], name='CENPC')
+                    viewer.add_image(images[1], name='Channel 1')
+                    viewer.add_image(images[2], name='Channel 2')
+
                 
                 # Check for and load intermediate results
                 intermediate_path = os.path.join(current_folder_path, "intermediate_results")
@@ -1085,12 +1515,13 @@ def on_folder_selected():
                                 edge_color="yellow",
                                 face_color=[1, 1, 0, 0.2],
                                 edge_width=2,
-                                name="DNA-FISH Spots",
+                                name="Channel 1 Spots",
                                 opacity=0.8
                             )
                             dna_fish_counter.update_count(len(processor.dna_fish_centroids))
+
                             detect_dna_fish_done = True
-                            show_info("Loaded existing DNA-FISH spots")
+                            show_info("Loaded existing Channel 1 spots")
                     
                     # Load CENPC spots if they exist
                     cenpc_file = os.path.join(intermediate_path, "cenpc_spots.npy")
@@ -1111,12 +1542,13 @@ def on_folder_selected():
                                 edge_color="skyblue",
                                 face_color=[0, 0.5, 1, 0.2],
                                 edge_width=2,
-                                name="CENPC Spots",
+                                name="Channel 2 Spots", 
                                 opacity=0.8
                             )
                             cenpc_counter.update_count(len(processor.cenpc_centroids))
+
                             detect_cenpc_done = True
-                            show_info("Loaded existing CENPC spots")
+                            show_info("Loaded existing Channel 2 spots")
                 else:
                     segment_done = False
                     detect_dna_fish_done = False
@@ -1127,52 +1559,7 @@ def on_folder_selected():
     except Exception as e:
         show_info(f"Error loading selected folder: {str(e)}")
 
-def on_folder_selected_BU2():
-    try:
-        current_item = folder_list_widget.currentItem()
-        if current_item:
-            # Get the full path from item data
-            selected_folder = current_item.data(Qt.UserRole)
-            if selected_folder:
-                # Rest of your existing loading code...
-                dapi_id = channel_identifiers.dapi_text.text()
-                dna_fish_id = channel_identifiers.dna_fish_text.text()
-                cenpc_id = channel_identifiers.cenpc_text.text()
-                
-                global segment_done, detect_dna_fish_done, detect_cenpc_done, current_folder_path, images
-                current_folder_path = selected_folder
-                
-                images = processor.load_images(selected_folder, dapi_id, dna_fish_id, cenpc_id, segment_dapi_widget.is_checked())
-                
-                # Store existing shapes layer data
-                shapes_data = []
-                for layer in viewer.layers:
-                    if isinstance(layer, napari.layers.Shapes):
-                        shapes_data.append(layer.data)
-                
-                viewer.layers.clear()
-                
-                # Restore shapes layer
-                shapes_layer = viewer.add_shapes(name='Shapes', edge_color='yellow', edge_width=2)
-                if shapes_data:
-                    shapes_layer.data = shapes_data[0]
-                
-                if segment_dapi_widget.is_checked():
-                    images.insert(0, None)  # Add None for DAPI to images
-                    viewer.add_image(images[1], name='DNA-FISH')
-                    viewer.add_image(images[2], name='CENPC')
-                else:
-                    viewer.add_image(images[0], name='DAPI')
-                    viewer.add_image(images[1], name='DNA-FISH')
-                    viewer.add_image(images[2], name='CENPC')
-                
-                segment_done = False
-                detect_dna_fish_done = False
-                detect_cenpc_done = False
-                show_info(f"Loaded images from: {os.path.basename(selected_folder)}")
-                
-    except Exception as e:
-        show_info(f"Error loading selected folder: {str(e)}")
+
 
 # Connect the selection signal to our handler
 folder_list_widget.itemClicked.connect(on_folder_selected)
@@ -1245,10 +1632,12 @@ def process_folder_data(folder_path, folder_name, intermediate_path, dapi_id, dn
 
         return {
             'df': df_with_cenpc_inten,
-            'dna_fish_count': len(processor.dna_fish_centroids) if processor.dna_fish_centroids is not None else 0,
-            'cenpc_count': len(processor.cenpc_centroids) if processor.cenpc_centroids is not None else 0,
-            'mean_intensity': df_with_cenpc_inten['CENPC_Intensity'].mean(),
+            'channel_1_count': len(processor.dna_fish_centroids) if processor.dna_fish_centroids is not None else 0,
+            'channel_2_count': len(processor.cenpc_centroids) if processor.cenpc_centroids is not None else 0,
+            'mean_intensity': df_with_cenpc_inten['Channel2_Intensity'].mean(),
+
             'common_regions': True if not skip_segmentation else False
+
         }
 
     except Exception as e:
@@ -1307,6 +1696,7 @@ def process_folder_data_BU(folder_path, folder_name, intermediate_path, dapi_id,
         'mean_intensity': df_with_cenpc_inten['CENPC_Intensity'].mean()
     }
 
+
 @magicgui(
     call_button="Batch Processing",
     use_current_settings={'widget_type': 'CheckBox', 'text': 'Use Current UI Settings'}
@@ -1314,7 +1704,8 @@ def process_folder_data_BU(folder_path, folder_name, intermediate_path, dapi_id,
 def batch_processing(use_current_settings: bool):
     try:
         summary_data = []
-        all_intensities = []
+        all_ch1_intensities = []
+        all_ch2_intensities = []
         
         folders_to_process = [
             folder_list_widget.item(i).data(Qt.UserRole)
@@ -1325,9 +1716,21 @@ def batch_processing(use_current_settings: bool):
             return
             
         if use_current_settings:
+            # Using current UI settings
             threshold_dna_fish = control_widget_dna_fish.slider.value() / 100
             threshold_cenpc = control_widget_cenpc.slider.value() / 100
-            
+            skip_segmentation = segment_dapi_widget.is_checked()
+            dapi_id = channel_identifiers.dapi_text.text()
+            dna_fish_id = channel_identifiers.dna_fish_text.text()
+            cenpc_id = channel_identifiers.cenpc_text.text()
+            show_info(f"Using current UI settings:\n"
+                     f"Channel 1 Threshold: {threshold_dna_fish}\n"
+                     f"Channel 2 Threshold: {threshold_cenpc}\n"
+                     f"Skip Segmentation: {skip_segmentation}\n"
+                     f"DAPI ID: {dapi_id}\n"
+                     f"Channel 1 ID: {dna_fish_id}\n"
+                     f"Channel 2 ID: {cenpc_id}")
+
             for folder_path in folders_to_process:
                 folder_name = os.path.basename(folder_path)
                 try:
@@ -1340,100 +1743,245 @@ def batch_processing(use_current_settings: bool):
                     os.makedirs(intermediate_path, exist_ok=True)
                     
                     # Load images based on segmentation mode
-                    dapi_id = channel_identifiers.dapi_text.text()
-                    dna_fish_id = channel_identifiers.dna_fish_text.text()
-                    cenpc_id = channel_identifiers.cenpc_text.text()
-                    images = processor.load_images(folder_path, dapi_id, dna_fish_id, cenpc_id, segment_dapi_widget.is_checked())
+                    images = processor.load_images(folder_path, dapi_id, dna_fish_id, cenpc_id, skip_segmentation)
+                    if images is None or any(img is None for img in images if not skip_segmentation or images.index(img) > 0):
+                        raise ValueError("Failed to load one or more images")
                     
                     chromosome_count = 0
                     matched_count = 0
-                    df_with_cenpc_inten = None
                     
-                    if segment_dapi_widget.is_checked():  # Skip Segmentation case
+                    # Set the images in processor
+                    processor.img_dna_fish = images[1]
+                    processor.img_cenpc = images[2]
+
+                    # Case 1: No Segmentation (checkbox checked)
+                    if skip_segmentation:
                         # Detect spots without segmentation
-                        processor.detect_spots_cent(images[0], 'DNA-FISH', threshold_dna_fish, save_dir=current_folder_path)
-                        processor.detect_spots_cent(images[1], 'CENPC', threshold_cenpc, save_dir=current_folder_path)
+                        processor.detect_spots_cent(images[1], 'Channel 1', threshold_dna_fish, save_dir=current_folder_path)
+                        processor.detect_spots_cent(images[2], 'Channel 2', threshold_cenpc, save_dir=current_folder_path)
                         
-                        # Calculate intensities
-                        df_with_cenpc_inten = processor.calculate_intensity_all_dna_fish()
+                        df_common_dna_fish = pd.DataFrame(processor.dna_fish_centroids, columns=['Y', 'X'])
+                        df_common_cenpc = pd.DataFrame(processor.cenpc_centroids, columns=['Y', 'X'])
                         
-                    else:  # With Segmentation case
+                    # Case 2: With Segmentation (checkbox unchecked)
+                    else:
                         # Segment DAPI
                         masks = processor.segment_image(images[0], save_dir=current_folder_path)
+                        if masks is None:
+                            raise ValueError("Segmentation failed")
                         chromosome_count = len(np.unique(masks)) - 1
                         
                         # Detect spots
-                        processor.detect_spots_cent(images[1], 'DNA-FISH', threshold_dna_fish, save_dir=current_folder_path)
-                        processor.detect_spots_cent(images[2], 'CENPC', threshold_cenpc, save_dir=current_folder_path)
+                        processor.detect_spots_cent(images[1], 'Channel 1', threshold_dna_fish, save_dir=current_folder_path)
+                        processor.detect_spots_cent(images[2], 'Channel 2', threshold_cenpc, save_dir=current_folder_path)
                         
                         # Find common regions
-                        find_common()
-                        if processor.common_nuclei is not None:
-                            matched_count = len(np.unique(processor.common_nuclei)) - 1
-                            df_with_cenpc_inten = processor.gen_intensity_from_df(
-                                processor.img_cenpc,
-                                processor.df_centroid_dna_fish
-                            )
+                        common_nuclei = processor.find_common()
+                        if common_nuclei is None:
+                            raise ValueError("No common regions found")
+                        matched_count = len(np.unique(common_nuclei)) - 1
+                        
+                        # Get spots in common regions
+                        df_common_dna_fish = processor.get_spots_in_common_regions(
+                            pd.DataFrame(processor.dna_fish_centroids, columns=['Y', 'X']), 
+                            common_nuclei
+                        )
+                        df_common_cenpc = processor.get_spots_in_common_regions(
+                            pd.DataFrame(processor.cenpc_centroids, columns=['Y', 'X']), 
+                            common_nuclei
+                        )
+
+                    # Calculate intensities for both channels independently
+                    df_ch2_at_ch1 = processor.measure_intensity_at_spots(
+                        intensity_image=processor.img_cenpc,  # Measure Channel 2 intensity
+                        spots_df=df_common_dna_fish,         # at Channel 1 spots
+                        channel_name='Channel1'
+                    )
+
+                    df_ch1_at_ch2 = processor.measure_intensity_at_spots(
+                        intensity_image=processor.img_dna_fish,  # Measure Channel 1 intensity
+                        spots_df=df_common_cenpc,               # at Channel 2 spots
+                        channel_name='Channel2'
+                    )
+
+                    if df_ch2_at_ch1 is not None and df_ch1_at_ch2 is not None:
+                        # Add metadata to Channel 2 at Channel 1 spots
+                        df_ch2_at_ch1['Skip_Segmentation'] = skip_segmentation
+                        df_ch2_at_ch1['Folder'] = folder_name
+                        df_ch2_at_ch1['Channel1_Threshold'] = threshold_dna_fish
+                        df_ch2_at_ch1['Channel2_Threshold'] = threshold_cenpc
+                        df_ch2_at_ch1['Chromosome_Count'] = chromosome_count
+                        df_ch2_at_ch1['Matched_Nuclei_Count'] = matched_count
+
+                        # Add metadata to Channel 1 at Channel 2 spots
+                        df_ch1_at_ch2['Skip_Segmentation'] = skip_segmentation
+                        df_ch1_at_ch2['Folder'] = folder_name
+                        df_ch1_at_ch2['Channel1_Threshold'] = threshold_dna_fish
+                        df_ch1_at_ch2['Channel2_Threshold'] = threshold_cenpc
+                        df_ch1_at_ch2['Chromosome_Count'] = chromosome_count
+                        df_ch1_at_ch2['Matched_Nuclei_Count'] = matched_count
+
+                        # Save intensity measurements
+                        ch2_at_ch1_path = os.path.join(intermediate_path, f"{folder_name}_ch2_intensity_at_ch1_spots.csv")
+                        ch1_at_ch2_path = os.path.join(intermediate_path, f"{folder_name}_ch1_intensity_at_ch2_spots.csv")
+                        
+                        df_ch2_at_ch1.to_csv(ch2_at_ch1_path, index=False)
+                        df_ch1_at_ch2.to_csv(ch1_at_ch2_path, index=False)
+
+                        # Add to summary data
+                        summary_row = {
+                            'Folder': folder_name,
+                            'Channel1_Spots': len(df_ch2_at_ch1),
+                            'Channel2_Spots': len(df_ch1_at_ch2),
+                            'Mean_Ch2_at_Ch1': df_ch2_at_ch1['Intensity'].mean(),
+                            'Mean_Ch1_at_Ch2': df_ch1_at_ch2['Intensity'].mean(),
+                            'Chromosome_Count': chromosome_count,
+                            'Matched_Nuclei_Count': matched_count,
+                            'Skip_Segmentation': skip_segmentation,
+                            'Channel1_Threshold': threshold_dna_fish,
+                            'Channel2_Threshold': threshold_cenpc
+                        }
+                        summary_data.append(summary_row)
+                        all_ch1_intensities.append(df_ch1_at_ch2)
+                        all_ch2_intensities.append(df_ch2_at_ch1)
+                        
+                        print(f"\nResults for folder: {folder_name}")
+                        print(f"Channel 1 spots: {len(df_ch2_at_ch1)}")
+                        print(f"Channel 2 spots: {len(df_ch1_at_ch2)}")
+                        print(f"Mean Ch2 at Ch1 intensity: {summary_row['Mean_Ch2_at_Ch1']:.2f}")
+                        print(f"Mean Ch1 at Ch2 intensity: {summary_row['Mean_Ch1_at_Ch2']:.2f}")
+                        if not skip_segmentation:
+                            print(f"Chromosome count: {chromosome_count}")
+                            print(f"Matched nuclei count: {matched_count}")
+
+                except Exception as e:
+                    print(f"Error processing folder {folder_name}: {str(e)}")
+                    continue
+
+        else: 
+        
+            # Process existing saved data
+            for folder_path in folders_to_process:
+                folder_name = os.path.basename(folder_path)
+                try:
+                    print(f"\nAnalyzing saved data for folder: {folder_name}")
                     
-                    # Add to summaries
+                    # Check for required files in intermediate_results
+                    intermediate_path = os.path.join(folder_path, "intermediate_results")
+                    ch2_at_ch1_file = os.path.join(intermediate_path, f"{folder_name}_ch2_intensity_at_ch1_spots.csv")
+                    ch1_at_ch2_file = os.path.join(intermediate_path, f"{folder_name}_ch1_intensity_at_ch2_spots.csv")
+                    
+                    if not (os.path.exists(ch2_at_ch1_file) and os.path.exists(ch1_at_ch2_file)):
+                        print(f"Skipping {folder_name}: Missing intensity CSV files")
+                        continue
+                        
+                    # Load intensity data
+                    df_ch2_at_ch1 = pd.read_csv(ch2_at_ch1_file)
+                    df_ch1_at_ch2 = pd.read_csv(ch1_at_ch2_file)
+                    
+                    # Load spot counts from intermediate results if they exist
+                    dna_fish_centroids_file = os.path.join(intermediate_path, "dna_fish_centroids.npy")
+                    cenpc_centroids_file = os.path.join(intermediate_path, "cenpc_centroids.npy")
+                    
+                    channel_1_count = 0
+                    channel_2_count = 0
+                    
+                    if os.path.exists(dna_fish_centroids_file):
+                        channel_1_spots = np.load(dna_fish_centroids_file)
+                        channel_1_count = len(channel_1_spots)
+                        
+                    if os.path.exists(cenpc_centroids_file):
+                        channel_2_spots = np.load(cenpc_centroids_file)
+                        channel_2_count = len(channel_2_spots)
+                    
+                    # Check for segmentation data
+                    seg_file = os.path.join(intermediate_path, "segmentation.npy")
+                    common_file = os.path.join(intermediate_path, "common_nuclei.npy")
+                    
+                    chromosome_count = 0
+                    matched_count = 0
+                    
+                    if os.path.exists(seg_file):
+                        segmentation = np.load(seg_file)
+                        chromosome_count = len(np.unique(segmentation)) - 1
+                        
+                    if os.path.exists(common_file):
+                        common_nuclei = np.load(common_file)
+                        matched_count = len(np.unique(common_nuclei)) - 1
+                    
+                    # Create summary row
                     summary_row = {
                         'Folder': folder_name,
-                        'DNA-FISH Spots': len(processor.dna_fish_centroids) if processor.dna_fish_centroids is not None else 0,
-                        'CENPC Spots': len(processor.cenpc_centroids) if processor.cenpc_centroids is not None else 0,
-                        'Mean CENPC Intensity': df_with_cenpc_inten['CENPC_Intensity'].mean() if df_with_cenpc_inten is not None else None,
-                        'Chromosome Count': chromosome_count,
-                        'Matched Nuclei Count': matched_count,
-                        'Skip Segmentation': segment_dapi_widget.is_checked(),
-                        'Using UI Settings': True
+                        'Channel1_Spots': channel_1_count,
+                        'Channel2_Spots': channel_2_count,
+                        'Mean_Ch2_at_Ch1': df_ch2_at_ch1['Intensity'].mean(),
+                        'Mean_Ch1_at_Ch2': df_ch1_at_ch2['Intensity'].mean(),
+                        'Chromosome_Count': chromosome_count,
+                        'Matched_Nuclei_Count': matched_count,
+                        'Skip_Segmentation': df_ch2_at_ch1['Skip_Segmentation'].iloc[0] if 'Skip_Segmentation' in df_ch2_at_ch1.columns else None,
+                        'Channel1_Threshold': df_ch2_at_ch1['Channel1_Threshold'].iloc[0] if 'Channel1_Threshold' in df_ch2_at_ch1.columns else None,
+                        'Channel2_Threshold': df_ch2_at_ch1['Channel2_Threshold'].iloc[0] if 'Channel2_Threshold' in df_ch2_at_ch1.columns else None
                     }
                     summary_data.append(summary_row)
                     
-                    # Save intensity results if available
-                    if df_with_cenpc_inten is not None and not df_with_cenpc_inten.empty:
-                        df_with_cenpc_inten['Folder'] = folder_name
-                        all_intensities.append(df_with_cenpc_inten)
-                        save_path = os.path.join(folder_path, f"{folder_name}_intensity.csv")
-                        df_with_cenpc_inten.to_csv(save_path, index=False)
+                    # Add to all intensities lists
+                    all_ch1_intensities.append(df_ch1_at_ch2)
+                    all_ch2_intensities.append(df_ch2_at_ch1)
+                    
+                    print(f"\nResults for folder: {folder_name}")
+                    print(f"Channel 1 spots: {channel_1_count}")
+                    print(f"Channel 2 spots: {channel_2_count}")
+                    print(f"Mean Ch2 at Ch1 intensity: {summary_row['Mean_Ch2_at_Ch1']:.2f}")
+                    print(f"Mean Ch1 at Ch2 intensity: {summary_row['Mean_Ch1_at_Ch2']:.2f}")
+                    if chromosome_count > 0:
+                        print(f"Chromosome count: {chromosome_count}")
+                        print(f"Matched nuclei count: {matched_count}")
                     
                 except Exception as e:
-                    print(f"Error processing {folder_name}: {str(e)}")
-                    summary_row = {
-                        'Folder': folder_name,
-                        'DNA-FISH Spots': 0,
-                        'CENPC Spots': 0,
-                        'Mean CENPC Intensity': None,
-                        'Chromosome Count': 0,
-                        'Matched Nuclei Count': 0,
-                        'Skip Segmentation': segment_dapi_widget.is_checked(),
-                        'Using UI Settings': True,
-                        'Error': str(e)
-                    }
-                    summary_data.append(summary_row)
+                    print(f"Error processing saved data for {folder_name}: {str(e)}")
                     continue
-        
-        # Save summary files
+
+
+
         if summary_data:
-            summary_df = pd.DataFrame(summary_data)
-            summary_path = os.path.join(os.path.dirname(folders_to_process[0]), "batch_processing_summary.csv")
-            summary_df.to_csv(summary_path, index=False)
-            
-            if all_intensities:
-                combined_df = pd.concat(all_intensities, ignore_index=True)
-                combined_path = os.path.join(os.path.dirname(folders_to_process[0]), "all_intensities_summary.csv")
-                combined_df.to_csv(combined_path, index=False)
+            try:
+                # Create summary DataFrame
+                df_summary = pd.DataFrame(summary_data)
                 
-                show_info(f"Processing complete. Summaries saved to:\n{summary_path}\n{combined_path}")
-            else:
-                show_info("No intensity data found to combine")
+                # Save summary to root directory
+                root_dir = os.path.dirname(folders_to_process[0])
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                summary_path = os.path.join(root_dir, f"batch_summary_{timestamp}.csv")
+                df_summary.to_csv(summary_path, index=False)
+                
+                # Save combined intensity data for each channel
+                if all_ch1_intensities and all_ch2_intensities:
+                    df_all_ch1 = pd.concat(all_ch1_intensities, ignore_index=True)
+                    df_all_ch2 = pd.concat(all_ch2_intensities, ignore_index=True)
+                    
+                    ch1_path = os.path.join(root_dir, f"all_ch1_intensities_{timestamp}.csv")
+                    ch2_path = os.path.join(root_dir, f"all_ch2_intensities_{timestamp}.csv")
+                    
+                    df_all_ch1.to_csv(ch1_path, index=False)
+                    df_all_ch2.to_csv(ch2_path, index=False)
+                
+                show_info(f"Batch processing completed. Summary saved to:\n{summary_path}")
+
+            except Exception as e:
+                    show_info(f"Error saving summary data: {str(e)}")   
         else:
-            show_info("No folders were successfully processed")
+                show_info("No summary data generated")
+
+
             
     except Exception as e:
-        show_info(f"Error during batch processing: {str(e)}")               
+        show_info(f"Error during batch processing: {str(e)}")
+
+
 
 chromosome_counter = ChromosomeCountWidget()
-dna_fish_counter = SpotCountWidget("DNA-FISH")
-cenpc_counter = SpotCountWidget("CENPC")
+dna_fish_counter = SpotCountWidget("Channel 1")
+cenpc_counter = SpotCountWidget("Channel 2")
 
 
 
@@ -1458,8 +2006,8 @@ batch_processor = BatchProcessor(processor, control_widget_dna_fish, control_wid
 viewer.window.add_dock_widget(channel_identifiers, area='right', name='Channel Identifiers')
 viewer.window.add_dock_widget(load_images, area='right', name='')
 viewer.window.add_dock_widget(segment_dapi_widget, area='right', name='Segment DAPI Control')
-viewer.window.add_dock_widget(control_widget_dna_fish, area='right', name='Detect DNA-FISH Spot Control')
-viewer.window.add_dock_widget(control_widget_cenpc, area='right', name='Detect CENPC Spot Control')
+viewer.window.add_dock_widget(control_widget_dna_fish, area='right', name='Detect Channel 1 Spot Control')
+viewer.window.add_dock_widget(control_widget_cenpc, area='right', name='Detect Channel 2 Spot Control')
 viewer.window.add_dock_widget(find_common, area='right', name='')
 viewer.window.add_dock_widget(get_intensity_at_cenpc_location, area='right', name='')
 
@@ -1481,6 +2029,11 @@ viewer.window.add_dock_widget(toggle_button, area='left', name='Toggle Layers')
 run_all_button = run_all.native
 run_all_button.setStyleSheet("background-color: green; color: white;")
 viewer.window.add_dock_widget(run_all_button, area='right', name='Run All')
+
+# Create Save Segmentation widget with button and checkbox
+save_seg_widget = SaveSegmentationWidget()
+viewer.window.add_dock_widget(save_seg_widget, area='right', name='Save Segmentation')
+
 
 batch_processing_button = batch_processing.native
 batch_processing_button.setStyleSheet("background-color: blue; color: white;")
