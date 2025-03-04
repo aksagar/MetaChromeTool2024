@@ -147,7 +147,7 @@ class ImageProcessor:
         Returns:
             The segmented image masks
         """
-        trained_model_path = '/gpfs/gsfs10/users/sagarm2/cellpose_chr/newDataSet/trainingfiles/models/cellpose_1718127286.8010929'
+        trained_model_path = 'cellpose_1718127286.8010929'
         model = models.CellposeModel(gpu=True, pretrained_model=trained_model_path)
 
         masks, flows, styles = model.eval([image], diameter=None, channels=[0, 0])
