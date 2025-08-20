@@ -13,11 +13,38 @@ This project uses Napari for analyzing metaphase chromosome images. It enables u
 
 ## Installation Instructions
 
-To set up the environment and run Napari for chromosome analysis, follow these steps:
+### Option 1: Install via pip (Recommended)
+
+The easiest way to install MetaChrome is using pip:
+
+```bash
+pip install metachrome
+```
+
+After installation, you can run the application with:
+```bash
+metachrome
+```
+
+### Option 2: Install from source
+
+To install from the source code, follow these steps:
 
 ### Step 1: Download the Repository
 
 First, download all the files from the GitHub directory and navigate to the downloaded folder. You can do this by using the following commands:
+
+#### Quick Installation (Recommended)
+
+If you have Python installed, you can use the provided installation script:
+
+```bash
+python install.py
+```
+
+This will automatically install all dependencies and the package in development mode.
+
+#### Manual Installation
 
 #### Windows:
 ```powershell
