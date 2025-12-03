@@ -147,10 +147,19 @@ class ImageProcessor:
         Returns:
             The segmented image masks
         """
-        #trained_model_path = 'cellpose_1718127286.8010929'
-        trained_model_path = 'cellpose_1758654062.3588712'
-        model = models.CellposeModel(gpu=True, pretrained_model=trained_model_path)
-        print("loading the pretrained model here for fluorescence images")
+        # Hardcoded choice - will be updated from GUI later
+        use_fluorescence_model = True  # Set to False for G-banding images
+        
+        if use_fluorescence_model:
+            # Model for fluorescence images
+            pretrained_model_path = 'cellpose_1758724849.2595932'
+            print("Loading pretrained model for fluorescence images")
+        else:
+            # Model for G-banding images
+            pretrained_model_path = 'cpsam_GTG_nov7'
+            print("Loading pretrained model for G-banding images")
+        
+        model = models.CellposeModel(gpu=True, model_type=None, pretrained_model=pretrained_model_path)
 
         masks, flows, styles = model.eval([image], diameter=None, channels=[0, 0])
         self.nuclei = masks[0]  # Use the first element of the list returned by eval
