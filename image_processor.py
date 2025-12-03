@@ -147,8 +147,10 @@ class ImageProcessor:
         Returns:
             The segmented image masks
         """
-        trained_model_path = 'cellpose_1718127286.8010929'
+        #trained_model_path = 'cellpose_1718127286.8010929'
+        trained_model_path = 'cellpose_1758654062.3588712'
         model = models.CellposeModel(gpu=True, pretrained_model=trained_model_path)
+        print("loading the pretrained model here for fluorescence images")
 
         masks, flows, styles = model.eval([image], diameter=None, channels=[0, 0])
         self.nuclei = masks[0]  # Use the first element of the list returned by eval
