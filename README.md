@@ -23,20 +23,7 @@ This repository includes pre-trained Cellpose models for chromosome segmentation
 
 ## Installation Instructions
 
-### Option 1: Install via pip (Recommended)
-
-The easiest way to install MetaChrome is using pip:
-
-```bash
-pip install metachrome
-```
-
-After installation, you can run the application with:
-```bash
-metachrome
-```
-
-### Option 2: Install from source
+### Option 1: Install from source (Recommended)
 
 To install from the source code, follow these steps:
 
@@ -135,6 +122,19 @@ python main.py
     
 
 For more detailed installation instructions, please refer to the [Napari Installation Guide](https://napari.org/stable/tutorials/fundamentals/installation.html).
+
+### Option 2: Install via pip
+
+Alternatively, you can install MetaChrome using pip:
+
+```bash
+pip install metachrome
+```
+
+After installation, you can run the application with:
+```bash
+metachrome
+```
 
 ## Usage
 
