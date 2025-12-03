@@ -11,6 +11,16 @@ This project uses Napari for analyzing metaphase chromosome images. It enables u
 - Detect centromeres and measure CENP-A levels within metaphase chromosome regions.
 - Perform quantitative analysis of chromosome features.
 
+## Required Model Files
+
+This repository includes pre-trained Cellpose models for chromosome segmentation. These large model files are managed using Git LFS:
+
+- **cellpose_1718127286.8010929** (25 MB) - Required for Cellpose 2.0 segmentation
+- **cellpose_1758654062.3588712** (581 MB) - Required for Cellpose SAM segmentation of fluorescence images of metaphase chromosomes
+- **cpsam_GTG_nov7** (581 MB) - Required for G-band image segmentation
+
+**Note:** If you clone this repository, Git LFS will automatically download these model files. If you installed via pip, the models will be included in the package.
+
 ## Installation Instructions
 
 ### Option 1: Install via pip (Recommended)
